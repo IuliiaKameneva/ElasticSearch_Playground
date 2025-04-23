@@ -1,34 +1,130 @@
-version: "3.9"
 services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "2181:2181"
+    networks:
+      - es-network
+  
+  #     KAFKA_ADVERTISED_LISTENERS: INSIDE://kafka:9093,OUTSIDE://kafka:9092
+  #     KAFKA_LISTENER_NAME_INSIDE: INSIDE
+  #     KAFKA_LISTENER_PORT: 9093
+  #     KAFKA_LISTENER_HOST: kafka
+  #     KAFKA_LISTENER_SECURITY_PROTOCOL: PLAINTEXT   # Протокол безопасности для всех слушателей
+  #     KAFKA_LISTENER_NAME_OUTSIDE: OUTSIDE
+  #     KAFKA_LISTENER_PORT_OUTSIDE: 9092
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092 # it works just for access from host-machine
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - es-network
+
+  # kafka-ui:
+  #   image: provectuslabs/kafka-ui:latest
+  #   container_name: kafka-ui
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - kafka
+  #   environment:
+  #     - KAFKA_CLUSTERS_0_NAME=local-kafka
+  #     - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+  #   networks:
+  #     - es-network
+
+
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.12.2
-    container_name: elasticsearch
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - xpack.security.transport.ssl.enabled=false
     ports:
       - "9200:9200"
-  
+    networks:
+      - es-network
+
   kibana:
     image: docker.elastic.co/kibana/kibana:8.12.2
-    container_name: kibana
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
     ports:
       - "5601:5601"
     depends_on:
       - elasticsearch
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    networks:
+      - es-network
 
-  spark:
-    build: ./spark
-    container_name: spark
-    environment:
-      - PYSPARK_PYTHON=python3
-    volumes:
-      - ./spark/app:/app
+  # spark:
+  #   build: ./spark
+  #   container_name: spark
+  #   environment:
+  #     - PYSPARK_PYTHON=python3
+  #   volumes:
+  #     - ./spark/app:/app
+  #   depends_on:
+  #     - elasticsearch
+  #   working_dir: /app
+  #   entrypoint: ["/bin/bash"]
+  #   tty: true
+
+  # for manual running
+  # docker exec -it producer bash
+  # python kafka-producer.py
+  # producer: 
+  #   container_name: producer
+  #   build: ./producer
+  #   depends_on:
+  #     - kafka
+  #   volumes:
+  #     - ./producer/app:/app
+  #   entrypoint: ["/bin/bash"]
+  #   tty: true
+  #   networks:
+  #     - es-network
+
+  producer: 
+    container_name: producer
+    build: ./producer
     depends_on:
-      - elasticsearch
-    working_dir: /app
-    entrypoint: ["/bin/bash"]
-    tty: true
+      - kafka
+    volumes:
+      - ./producer/app:/app
+    networks:
+      - es-network
+
+  # spark-master:
+  #   image: bitnami/spark:latest
+  #   environment:
+  #     - SPARK_MODE=master
+  #     - SPARK_MASTER_URL=spark://spark-master:7077
+  #   ports:
+  #     - "7077:7077"
+  #     - "4040:4040"
+  #   networks:
+  #     - es-network
+
+  # spark-worker-1:
+  #   image: bitnami/spark:latest
+  #   environment:
+  #     - SPARK_MODE=worker
+  #     - SPARK_MASTER_URL=spark://spark-master:7077
+  #   networks:
+  #     - es-network
+
+networks:
+  es-network:
+    driver: bridge
